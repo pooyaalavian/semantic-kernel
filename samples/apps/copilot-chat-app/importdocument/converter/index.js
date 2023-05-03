@@ -23,44 +23,7 @@ function match(docx_name, dict) {
     return name in dict;
 }
 
-async function main(dir) {
-    const files = fs.readdirSync(dir);
-    const docx = files.filter(f => f.endsWith('.docx'));
-    const txt = files.filter(f => f.endsWith('.txt')).reduce((d, s) => ({ ...d, [s]: true }), {});
-    for (const doc of docx) {
-        if (!match(doc, txt)) {
-            await parseDoc(doc, dir);
-        }
-        // runDotnet(doc, dir);
-        await runDotnetPromise(doc, dir);
-    }
-}
 
-const execP = (cmd) => new Promise((resolve, reject) => {
-  exec(cmd, (err, stdout, stderr) => {
-        if (err) {
-            reject(stderr);
-          return;
-        }
-      resolve(stdout);
-      });
-});
-
-async function runDotnetPromise(path, dir) {
-    const file = dir + '\\' + rename(path);
-    const cmd = `dotnet run -- --file "${file}"`;
-    console.log('running > ', cmd);
-    try {
-        const res = await execP(cmd);
-        console.log(res);
-    }
-    catch (e) {
-        console.error(e);
-        console.log(`You may want to run 
-        "${cmd}"
-later.`);
-}    
-}
 
 function runDotnet(path, dir) {
     const file = dir + '\\' + rename(path);
@@ -78,6 +41,20 @@ function runDotnet(path, dir) {
 }
 
 const dir = process.argv[2];
+
+
+async function main(dir) {
+    const files = fs.readdirSync(dir);
+    const docx = files.filter(f => f.endsWith('.docx'));
+    const txt = files.filter(f => f.endsWith('.txt')).reduce((d, s) => ({ ...d, [s]: true }), {});
+    for (const doc of docx) {
+        if (!match(doc, txt)) {
+            await parseDoc(doc, dir);
+        }
+        runDotnet(doc, dir);
+    }
+}
+
 main(dir).catch(e => {
     console.error(e);
     process.exit(1);

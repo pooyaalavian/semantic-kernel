@@ -209,23 +209,30 @@ public class ChatSkill
 
         // Create a plan and run it.
         Plan plan = await this._planner.CreatePlanAsync(plannerContext.Variables.Input);
-        SKContext planContext = await plan.InvokeAsync(plannerContext);
-
-        // The result of the plan may be from an OpenAPI skill. Attempt to extract JSON from the response.
-        if (!this.TryExtractJsonFromPlanResult(planContext.Variables.Input, out string planResult))
+        if (plan.Steps.Count > 0)
         {
-            // If not, use result of the plan execution result directly.
-            planResult = planContext.Variables.Input;
+            SKContext planContext = await plan.InvokeAsync(plannerContext);
+
+            // The result of the plan may be from an OpenAPI skill. Attempt to extract JSON from the response.
+            if (!this.TryExtractJsonFromOpenApiPlanResult(planContext.Variables.Input, out string planResult))
+            {
+                // If not, use result of the plan execution result directly.
+                planResult = planContext.Variables.Input;
+            }
+
+            string informationText = $"[START RELATED INFORMATION]\n{planResult.Trim()}\n[END RELATED INFORMATION]\n";
+
+            // Adjust the token limit using the number of tokens in the information text.
+            int tokenLimit = int.Parse(context["tokenLimit"], new NumberFormatInfo());
+            tokenLimit -= Utilities.TokenCount(informationText);
+            context.Variables.Set("tokenLimit", tokenLimit.ToString(new NumberFormatInfo()));
+
+            return informationText;
         }
-
-        string informationText = $"[START RELATED INFORMATION]\n{planResult.Trim()}\n[END RELATED INFORMATION]\n";
-
-        // Adjust the token limit using the number of tokens in the information text.
-        int tokenLimit = int.Parse(context["tokenLimit"], new NumberFormatInfo());
-        tokenLimit -= Utilities.TokenCount(informationText);
-        context.Variables.Set("tokenLimit", tokenLimit.ToString(new NumberFormatInfo()));
-
-        return informationText;
+        else
+        {
+            return string.Empty;
+        }
     }
 
     /// <summary>
@@ -368,7 +375,7 @@ public class ChatSkill
     /// <summary>
     /// Try to extract json from the planner response as if it were from an OpenAPI skill.
     /// </summary>
-    private bool TryExtractJsonFromPlanResult(string openApiSkillResponse, out string json)
+    private bool TryExtractJsonFromOpenApiPlanResult(string openApiSkillResponse, out string json)
     {
         try
         {
@@ -386,8 +393,11 @@ public class ChatSkill
         }
         catch (JsonException)
         {
-            // Expected if not valid JSON.
-            this._logger.LogDebug("Unable to extract JSON from planner response. It is likely not JSON formatted.");
+            this._logger.LogDebug("Unable to extract JSON from planner response, it is likely not from an OpenAPI skill.");
+        }
+        catch (InvalidOperationException)
+        {
+            this._logger.LogDebug("Unable to extract JSON from planner response, it may already be proper JSON.");
         }
 
         json = string.Empty;
@@ -472,7 +482,7 @@ public class ChatSkill
             query: item.ToFormattedString(),
             limit: 1,
             minRelevanceScore: 0.8,
-            cancel: context.CancellationToken
+            cancellationToken: context.CancellationToken
         ).ToEnumerable();
 
         if (!memories.Any())
@@ -482,7 +492,7 @@ public class ChatSkill
                 text: item.ToFormattedString(),
                 id: Guid.NewGuid().ToString(),
                 description: memoryName,
-                cancel: context.CancellationToken
+                cancellationToken: context.CancellationToken
             );
         }
     }

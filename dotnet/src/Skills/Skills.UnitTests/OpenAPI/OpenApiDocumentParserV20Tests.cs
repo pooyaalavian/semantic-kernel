@@ -5,8 +5,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using Microsoft.SemanticKernel.Connectors.WebApi.Rest.Model;
 using Microsoft.SemanticKernel.Skills.OpenAPI.Model;
 using Microsoft.SemanticKernel.Skills.OpenAPI.OpenApi;
 using SemanticKernel.Skills.UnitTests.OpenAPI.TestSkills;
@@ -92,7 +93,7 @@ public sealed class OpenApiDocumentParserV20Tests : IDisposable
         var putOperation = operations.Single(o => o.Id == "SetSecret");
         Assert.NotNull(putOperation);
         Assert.Equal("Sets a secret in a specified key vault.", putOperation.Description);
-        Assert.Equal("https://my-key-vault.vault.azure.net", putOperation.ServerUrl);
+        Assert.Equal("https://my-key-vault.vault.azure.net/", putOperation.ServerUrl?.AbsoluteUri);
         Assert.Equal(HttpMethod.Put, putOperation.Method);
         Assert.Equal("/secrets/{secret-name}", putOperation.Path);
 
@@ -113,7 +114,7 @@ public sealed class OpenApiDocumentParserV20Tests : IDisposable
         var serverUrlParameter = parameters.Single(p => p.Name == "server-url"); //'server-url' artificial parameter.
         Assert.False(serverUrlParameter.IsRequired);
         Assert.Equal(RestApiOperationParameterLocation.Path, serverUrlParameter.Location);
-        Assert.Equal("https://my-key-vault.vault.azure.net", serverUrlParameter.DefaultValue);
+        Assert.Equal("https://my-key-vault.vault.azure.net/", serverUrlParameter.DefaultValue);
 
         var payloadParameter = parameters.Single(p => p.Name == "payload"); //'payload' artificial parameter.
         Assert.True(payloadParameter.IsRequired);
@@ -217,6 +218,38 @@ public sealed class OpenApiDocumentParserV20Tests : IDisposable
         var properties = payload.Properties;
         Assert.NotNull(properties);
         Assert.Equal(0, properties.Count);
+    }
+
+    [Fact]
+    public async Task ItCanWorkWithDocumentsWithoutHostAndSchemaAttributesAsync()
+    {
+        //Arrange
+        using var stream = ModifyOpenApiDocument(this._openApiDocument, (doc) =>
+        {
+            doc.Remove("host");
+            doc.Remove("schemes");
+        });
+
+        //Act
+        var operations = await this._sut.ParseAsync(stream);
+
+        //Assert
+        Assert.All(operations, (op) => Assert.Null(op.ServerUrl));
+    }
+
+    private static MemoryStream ModifyOpenApiDocument(Stream openApiDocument, Action<JsonObject> transformer)
+    {
+        var json = JsonSerializer.Deserialize<JsonObject>(openApiDocument);
+
+        transformer(json!);
+
+        var stream = new MemoryStream();
+
+        JsonSerializer.Serialize(stream, json);
+
+        stream.Seek(0, SeekOrigin.Begin);
+
+        return stream;
     }
 
     private static RestApiOperationParameter GetParameterMetadata(IList<RestApiOperation> operations, string operationId,

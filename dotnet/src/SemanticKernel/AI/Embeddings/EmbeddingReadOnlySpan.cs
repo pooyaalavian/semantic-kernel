@@ -1,7 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
-using System.Diagnostics.CodeAnalysis;
 using Microsoft.SemanticKernel.AI.Embeddings.VectorOperations;
 
 namespace Microsoft.SemanticKernel.AI.Embeddings;
@@ -10,7 +9,7 @@ namespace Microsoft.SemanticKernel.AI.Embeddings;
 /// A view of a vector that allows for low-level, optimized, read-only mathematical operations.
 /// </summary>
 /// <typeparam name="TEmbedding">The unmanaged data type (<see cref="float"/>, <see cref="double"/> currently supported).</typeparam>
-public ref struct EmbeddingReadOnlySpan<TEmbedding>
+public readonly ref struct EmbeddingReadOnlySpan<TEmbedding>
     where TEmbedding : unmanaged
 {
     /// <summary>
@@ -25,7 +24,10 @@ public ref struct EmbeddingReadOnlySpan<TEmbedding>
     /// </remarks>
     public EmbeddingReadOnlySpan(ReadOnlySpan<TEmbedding> vector, bool isNormalized = false)
     {
-        SupportedTypes.VerifyTypeSupported<TEmbedding>();
+        if (!Embedding.IsSupported<TEmbedding>())
+        {
+            EmbeddingSpan<TEmbedding>.ThrowTEmbeddingNotSupported();
+        }
 
         this.ReadOnlySpan = vector;
         this.IsNormalized = isNormalized;
@@ -106,10 +108,4 @@ public ref struct EmbeddingReadOnlySpan<TEmbedding>
 
         return this.ReadOnlySpan.CosineSimilarity(other.ReadOnlySpan);
     }
-
-    /// <summary>
-    /// Gets a value that indicates whether <typeparamref name="TEmbedding"/> is supported.
-    /// </summary>
-    [SuppressMessage("Design", "CA1000:Do not declare static members on generic types", Justification = "Following 'IsSupported' pattern of System.Numerics.")]
-    public static bool IsSupported => SupportedTypes.IsSupported<TEmbedding>();
 }

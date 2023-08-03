@@ -5,22 +5,13 @@ using Microsoft.SemanticKernel.Diagnostics;
 
 namespace Microsoft.SemanticKernel;
 
-#pragma warning disable CA1032 // Implement standard exception constructors
+#pragma warning disable RCS1194 // Implement exception constructors
 
 /// <summary>
 /// Exception thrown for errors related to kernel logic.
 /// </summary>
 public class KernelException : SKException
 {
-    /// <summary>
-    /// Initializes a new instance of the <see cref="KernelException"/> class with a provided error code.
-    /// </summary>
-    /// <param name="errorCode">The error code.</param>
-    public KernelException(ErrorCodes errorCode)
-        : this(errorCode, message: null, innerException: null)
-    {
-    }
-
     /// <summary>
     /// Initializes a new instance of the <see cref="KernelException"/> class with a provided error code and message.
     /// </summary>
@@ -37,7 +28,7 @@ public class KernelException : SKException
     /// <param name="errorCode">The error code.</param>
     /// <param name="message">A string that describes the error.</param>
     /// <param name="innerException">The exception that is the cause of the current exception.</param>
-    public KernelException(ErrorCodes errorCode, string? message, Exception? innerException)
+    public KernelException(ErrorCodes errorCode, string? message = null, Exception? innerException = null)
         : base(GetDefaultMessage(errorCode, message), innerException)
     {
         this.ErrorCode = errorCode;
@@ -49,7 +40,9 @@ public class KernelException : SKException
     public ErrorCodes ErrorCode { get; }
 
     /// <summary>Translate the error code into a default message.</summary>
-    private static string GetDefaultMessage(ErrorCodes errorCode, string? message)
+    /// <param name="errorCode">The error code.</param>
+    /// <param name="defaultMessage">Default error message if nothing available.</param>
+    private static string GetDefaultMessage(ErrorCodes errorCode, string? defaultMessage)
     {
         string description = errorCode switch
         {
@@ -65,7 +58,7 @@ public class KernelException : SKException
             _ => $"Unknown error ({errorCode:G})",
         };
 
-        return message is not null ? $"{description}: {message}" : description;
+        return defaultMessage is not null ? $"{description}: {defaultMessage}" : description;
     }
 
     /// <summary>

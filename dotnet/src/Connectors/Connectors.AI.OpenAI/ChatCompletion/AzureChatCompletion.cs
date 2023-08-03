@@ -1,8 +1,10 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Azure.AI.OpenAI;
 using Azure.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel.AI.ChatCompletion;
@@ -51,27 +53,62 @@ public sealed class AzureChatCompletion : AzureOpenAIClientBase, IChatCompletion
     {
     }
 
+    /// <summary>
+    /// Creates a new AzureChatCompletion client instance using the specified OpenAIClient
+    /// </summary>
+    /// <param name="modelId">Azure OpenAI model ID or deployment name, see https://learn.microsoft.com/azure/cognitive-services/openai/how-to/create-resource</param>
+    /// <param name="openAIClient">Custom <see cref="OpenAIClient"/>.</param>
+    /// <param name="logger">Application logger</param>
+    public AzureChatCompletion(
+        string modelId,
+        OpenAIClient openAIClient,
+        ILogger? logger = null) : base(modelId, openAIClient, logger)
+    {
+    }
+
     /// <inheritdoc/>
-    public Task<string> GenerateMessageAsync(
+    public Task<IReadOnlyList<IChatResult>> GetChatCompletionsAsync(
         ChatHistory chat,
         ChatRequestSettings? requestSettings = null,
         CancellationToken cancellationToken = default)
     {
-        return this.InternalGenerateChatMessageAsync(chat, requestSettings ?? new(), cancellationToken);
+        this.LogActionDetails();
+        return this.InternalGetChatResultsAsync(chat, requestSettings, cancellationToken);
     }
 
     /// <inheritdoc/>
-    public ChatHistory CreateNewChat(string instructions = "")
-    {
-        return this.InternalCreateNewChat(instructions);
-    }
-
-    /// <inheritdoc/>
-    public Task<string> CompleteAsync(
-        string text,
-        CompleteRequestSettings requestSettings,
+    public IAsyncEnumerable<IChatStreamingResult> GetStreamingChatCompletionsAsync(
+        ChatHistory chat,
+        ChatRequestSettings? requestSettings = null,
         CancellationToken cancellationToken = default)
     {
-        return this.InternalCompleteTextUsingChatAsync(text, requestSettings, cancellationToken);
+        this.LogActionDetails();
+        return this.InternalGetChatStreamingResultsAsync(chat, requestSettings, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public ChatHistory CreateNewChat(string? instructions = null)
+    {
+        return InternalCreateNewChat(instructions);
+    }
+
+    /// <inheritdoc/>
+    public IAsyncEnumerable<ITextStreamingResult> GetStreamingCompletionsAsync(
+        string text,
+        CompleteRequestSettings? requestSettings = null,
+        CancellationToken cancellationToken = default)
+    {
+        this.LogActionDetails();
+        return this.InternalGetChatStreamingResultsAsTextAsync(text, requestSettings, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<ITextResult>> GetCompletionsAsync(
+        string text,
+        CompleteRequestSettings? requestSettings = null,
+        CancellationToken cancellationToken = default)
+    {
+        this.LogActionDetails();
+        return this.InternalGetChatResultsAsTextAsync(text, requestSettings, cancellationToken);
     }
 }

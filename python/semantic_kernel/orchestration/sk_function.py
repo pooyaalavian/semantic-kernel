@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft. All rights reserved.
 
 import asyncio
+import platform
+import sys
 import threading
 from enum import Enum
 from logging import Logger
@@ -35,6 +37,9 @@ from semantic_kernel.skill_definition.read_only_skill_collection_base import (
     ReadOnlySkillCollectionBase,
 )
 from semantic_kernel.utils.null_logger import NullLogger
+
+if platform.system() == "Windows" and sys.version_info >= (3, 8, 0):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 class SKFunction(SKFunctionBase):
@@ -307,7 +312,7 @@ class SKFunction(SKFunctionBase):
             if self.is_semantic:
                 return self._runThread(self._invoke_semantic_async(context, settings))
             else:
-                return self._runThread(self._invoke_semantic_async(context))
+                return self._runThread(self._invoke_native_async(context))
         else:
             if self.is_semantic:
                 return asyncio.run(self._invoke_semantic_async(context, settings))

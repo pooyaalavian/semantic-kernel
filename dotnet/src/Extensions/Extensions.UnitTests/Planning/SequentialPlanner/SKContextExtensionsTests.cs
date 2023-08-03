@@ -43,12 +43,12 @@ public class SKContextExtensionsTests
             .Returns(asyncEnumerable);
 
         // Arrange GetAvailableFunctionsAsync parameters
-        var context = new SKContext(variables, memory.Object, skills.ReadOnlySkillCollection, logger, cancellationToken);
-        var config = new SequentialPlannerConfig();
+        var context = new SKContext(variables, skills, logger);
+        var config = new SequentialPlannerConfig() { Memory = memory.Object };
         var semanticQuery = "test";
 
         // Act
-        var result = await context.GetAvailableFunctionsAsync(config, semanticQuery);
+        var result = await context.GetAvailableFunctionsAsync(config, semanticQuery, cancellationToken);
 
         // Assert
         Assert.NotNull(result);
@@ -66,8 +66,7 @@ public class SKContextExtensionsTests
         var cancellationToken = default(CancellationToken);
 
         // Arrange FunctionView
-        var mockSemanticFunction = new Mock<ISKFunction>();
-        var mockNativeFunction = new Mock<ISKFunction>();
+        var functionMock = new Mock<ISKFunction>();
         var functionsView = new FunctionsView();
         var functionView = new FunctionView("functionName", "skillName", "description", new List<ParameterView>(), true, false);
         var nativeFunctionView = new FunctionView("nativeFunctionName", "skillName", "description", new List<ParameterView>(), false, false);
@@ -93,21 +92,17 @@ public class SKContextExtensionsTests
                 x.SearchAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .Returns(asyncEnumerable);
 
-        skills.Setup(x => x.HasFunction(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
-        skills.Setup(x => x.HasSemanticFunction(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
-        skills.Setup(x => x.HasNativeFunction(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
-        skills.Setup(x => x.GetSemanticFunction(It.IsAny<string>(), It.IsAny<string>())).Returns(mockSemanticFunction.Object);
-        skills.Setup(x => x.GetNativeFunction(It.IsAny<string>(), It.IsAny<string>())).Returns(mockNativeFunction.Object);
+        skills.Setup(x => x.TryGetFunction(It.IsAny<string>(), It.IsAny<string>(), out It.Ref<ISKFunction?>.IsAny)).Returns(true);
+        skills.Setup(x => x.GetFunction(It.IsAny<string>(), It.IsAny<string>())).Returns(functionMock.Object);
         skills.Setup(x => x.GetFunctionsView(It.IsAny<bool>(), It.IsAny<bool>())).Returns(functionsView);
-        skills.SetupGet(x => x.ReadOnlySkillCollection).Returns(skills.Object);
 
         // Arrange GetAvailableFunctionsAsync parameters
-        var context = new SKContext(variables, memory.Object, skills.Object, logger, cancellationToken);
-        var config = new SequentialPlannerConfig();
+        var context = new SKContext(variables, skills.Object, logger);
+        var config = new SequentialPlannerConfig() { Memory = memory.Object };
         var semanticQuery = "test";
 
         // Act
-        var result = (await context.GetAvailableFunctionsAsync(config, semanticQuery)).ToList();
+        var result = (await context.GetAvailableFunctionsAsync(config, semanticQuery, cancellationToken)).ToList();
 
         // Assert
         Assert.NotNull(result);
@@ -136,8 +131,7 @@ public class SKContextExtensionsTests
         var cancellationToken = default(CancellationToken);
 
         // Arrange FunctionView
-        var mockSemanticFunction = new Mock<ISKFunction>();
-        var mockNativeFunction = new Mock<ISKFunction>();
+        var functionMock = new Mock<ISKFunction>();
         var functionsView = new FunctionsView();
         var functionView = new FunctionView("functionName", "skillName", "description", new List<ParameterView>(), true, false);
         var nativeFunctionView = new FunctionView("nativeFunctionName", "skillName", "description", new List<ParameterView>(), false, false);
@@ -163,21 +157,17 @@ public class SKContextExtensionsTests
                 x.SearchAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .Returns(asyncEnumerable);
 
-        skills.Setup(x => x.HasFunction(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
-        skills.Setup(x => x.HasSemanticFunction(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
-        skills.Setup(x => x.HasNativeFunction(It.IsAny<string>(), It.IsAny<string>())).Returns(true);
-        skills.Setup(x => x.GetSemanticFunction(It.IsAny<string>(), It.IsAny<string>())).Returns(mockSemanticFunction.Object);
-        skills.Setup(x => x.GetNativeFunction(It.IsAny<string>(), It.IsAny<string>())).Returns(mockNativeFunction.Object);
+        skills.Setup(x => x.TryGetFunction(It.IsAny<string>(), It.IsAny<string>(), out It.Ref<ISKFunction?>.IsAny)).Returns(true);
+        skills.Setup(x => x.GetFunction(It.IsAny<string>(), It.IsAny<string>())).Returns(functionMock.Object);
         skills.Setup(x => x.GetFunctionsView(It.IsAny<bool>(), It.IsAny<bool>())).Returns(functionsView);
-        skills.SetupGet(x => x.ReadOnlySkillCollection).Returns(skills.Object);
 
         // Arrange GetAvailableFunctionsAsync parameters
-        var context = new SKContext(variables, memory.Object, skills.Object, logger, cancellationToken);
-        var config = new SequentialPlannerConfig { RelevancyThreshold = 0.78 };
+        var context = new SKContext(variables, skills.Object, logger);
+        var config = new SequentialPlannerConfig { RelevancyThreshold = 0.78, Memory = memory.Object };
         var semanticQuery = "test";
 
         // Act
-        var result = (await context.GetAvailableFunctionsAsync(config, semanticQuery)).ToList();
+        var result = (await context.GetAvailableFunctionsAsync(config, semanticQuery, cancellationToken)).ToList();
 
         // Assert
         Assert.NotNull(result);
@@ -225,12 +215,12 @@ public class SKContextExtensionsTests
             .Returns(asyncEnumerable);
 
         // Arrange GetAvailableFunctionsAsync parameters
-        var context = new SKContext(variables, memory.Object, skills.ReadOnlySkillCollection, logger, cancellationToken);
-        var config = new SequentialPlannerConfig { RelevancyThreshold = 0.78 };
+        var context = new SKContext(variables, skills, logger);
+        var config = new SequentialPlannerConfig { RelevancyThreshold = 0.78, Memory = memory.Object };
         var semanticQuery = "test";
 
         // Act
-        var result = await context.GetAvailableFunctionsAsync(config, semanticQuery);
+        var result = await context.GetAvailableFunctionsAsync(config, semanticQuery, cancellationToken);
 
         // Assert
         Assert.NotNull(result);

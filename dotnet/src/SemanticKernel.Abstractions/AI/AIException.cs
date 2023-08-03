@@ -5,22 +5,13 @@ using Microsoft.SemanticKernel.Diagnostics;
 
 namespace Microsoft.SemanticKernel.AI;
 
-#pragma warning disable CA1032 // Implement standard exception constructors
+#pragma warning disable RCS1194 // Implement exception constructors
 
 /// <summary>
 /// Exception thrown for errors related to AI logic.
 /// </summary>
 public class AIException : SKException
 {
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AIException"/> class with a provided error code.
-    /// </summary>
-    /// <param name="errorCode">The error code.</param>
-    public AIException(ErrorCodes errorCode)
-        : this(errorCode, message: null, detail: null, innerException: null)
-    {
-    }
-
     /// <summary>
     /// Initializes a new instance of the <see cref="AIException"/> class with a provided error code and message.
     /// </summary>
@@ -60,7 +51,7 @@ public class AIException : SKException
     /// <param name="message">A string that describes the error.</param>
     /// <param name="detail">A string that provides additional details about the error.</param>
     /// <param name="innerException">The exception that is the cause of the current exception.</param>
-    public AIException(ErrorCodes errorCode, string? message, string? detail, Exception? innerException)
+    public AIException(ErrorCodes errorCode, string? message = null, string? detail = null, Exception? innerException = null)
         : base(GetDefaultMessage(errorCode, message), innerException)
     {
         this.ErrorCode = errorCode;
@@ -78,7 +69,9 @@ public class AIException : SKException
     public string? Detail { get; }
 
     /// <summary>Translate the error code into a default message.</summary>
-    private static string GetDefaultMessage(ErrorCodes errorCode, string? message)
+    /// <param name="errorCode">The error code.</param>
+    /// <param name="defaultMessage">Default error message if nothing available.</param>
+    private static string GetDefaultMessage(ErrorCodes errorCode, string? defaultMessage)
     {
         string description = errorCode switch
         {
@@ -95,7 +88,7 @@ public class AIException : SKException
             _ => $"Unknown error ({errorCode:G})",
         };
 
-        return message is not null ? $"{description}: {message}" : description;
+        return defaultMessage is not null ? $"{description}: {defaultMessage}" : description;
     }
 
     /// <summary>

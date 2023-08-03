@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.Memory;
 using Microsoft.SemanticKernel.Orchestration;
 using Microsoft.SemanticKernel.Planning;
 using Microsoft.SemanticKernel.Planning.Sequential;
@@ -26,28 +25,24 @@ public class SequentialPlanParserTests
     }
 
     private Mock<IKernel> CreateKernelMock(
-        out Mock<ISemanticTextMemory> semanticMemoryMock,
         out Mock<IReadOnlySkillCollection> mockSkillCollection,
         out Mock<ILogger> mockLogger)
     {
-        semanticMemoryMock = new Mock<ISemanticTextMemory>();
         mockSkillCollection = new Mock<IReadOnlySkillCollection>();
         mockLogger = new Mock<ILogger>();
 
         var kernelMock = new Mock<IKernel>();
         kernelMock.SetupGet(k => k.Skills).Returns(mockSkillCollection.Object);
-        kernelMock.SetupGet(k => k.Log).Returns(mockLogger.Object);
-        kernelMock.SetupGet(k => k.Memory).Returns(semanticMemoryMock.Object);
+        kernelMock.SetupGet(k => k.Logger).Returns(mockLogger.Object);
 
         return kernelMock;
     }
 
     private SKContext CreateSKContext(
         IKernel kernel,
-        ContextVariables? variables = null,
-        CancellationToken cancellationToken = default)
+        ContextVariables? variables = null)
     {
-        return new SKContext(variables ?? new ContextVariables(), kernel.Memory, kernel.Skills, kernel.Log, cancellationToken);
+        return new SKContext(variables, kernel.Skills, kernel.Logger);
     }
 
     private static Mock<ISKFunction> CreateMockFunction(FunctionView functionView, string result = "")
@@ -62,7 +57,7 @@ public class SequentialPlanParserTests
     private void CreateKernelAndFunctionCreateMocks(List<(string name, string skillName, string description, bool isSemantic, string result)> functions,
         out IKernel kernel)
     {
-        var kernelMock = this.CreateKernelMock(out _, out var skills, out _);
+        var kernelMock = this.CreateKernelMock(out var skills, out _);
         kernel = kernelMock.Object;
 
         // For Create
@@ -77,7 +72,7 @@ public class SequentialPlanParserTests
 
             var result = this.CreateSKContext(kernel);
             result.Variables.Update(resultString);
-            mockFunction.Setup(x => x.InvokeAsync(It.IsAny<SKContext>(), null, null, default))
+            mockFunction.Setup(x => x.InvokeAsync(It.IsAny<SKContext>(), null, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(result);
 
             if (string.IsNullOrEmpty(name))
@@ -90,18 +85,10 @@ public class SequentialPlanParserTests
             }
             else
             {
-                if (isSemantic)
-                {
-                    skills.Setup(x => x.GetSemanticFunction(It.Is<string>(s => s == skillName), It.Is<string>(s => s == name)))
-                        .Returns(mockFunction.Object);
-                    skills.Setup(x => x.HasSemanticFunction(It.Is<string>(s => s == skillName), It.Is<string>(s => s == name))).Returns(true);
-                }
-                else
-                {
-                    skills.Setup(x => x.GetNativeFunction(It.Is<string>(s => s == skillName), It.Is<string>(s => s == name)))
-                        .Returns(mockFunction.Object);
-                    skills.Setup(x => x.HasNativeFunction(It.Is<string>(s => s == skillName), It.Is<string>(s => s == name))).Returns(true);
-                }
+                skills.Setup(x => x.GetFunction(It.Is<string>(s => s == skillName), It.Is<string>(s => s == name)))
+                    .Returns(mockFunction.Object);
+                ISKFunction? outFunc = mockFunction.Object;
+                skills.Setup(x => x.TryGetFunction(It.Is<string>(s => s == skillName), It.Is<string>(s => s == name), out outFunc)).Returns(true);
             }
         }
 
@@ -126,13 +113,13 @@ public class SequentialPlanParserTests
 <plan>
     <function.SummarizeSkill.Summarize/>
     <function.WriterSkill.Translate language=""French"" setContextVariable=""TRANSLATED_SUMMARY""/>
-    <function.email.GetEmailAddressAsync input=""John Doe"" setContextVariable=""EMAIL_ADDRESS""/>
+    <function.email.GetEmailAddressAsync input=""John Doe"" setContextVariable=""EMAIL_ADDRESS"" appendToResult=""PLAN_RESULT""/>
     <function.email.SendEmailAsync input=""$TRANSLATED_SUMMARY"" email_address=""$EMAIL_ADDRESS""/>
 </plan>";
         var goal = "Summarize an input, translate to french, and e-mail to John Doe";
 
         // Act
-        var plan = planString.ToPlanFromXml(goal, kernel.CreateNewContext());
+        var plan = planString.ToPlanFromXml(goal, SequentialPlanParser.GetSkillFunction(kernel.CreateNewContext()));
 
         // Assert
         Assert.NotNull(plan);
@@ -149,22 +136,22 @@ public class SequentialPlanParserTests
             {
                 Assert.Equal("WriterSkill", step.SkillName);
                 Assert.Equal("Translate", step.Name);
-                Assert.Equal("French", step.NamedParameters["language"]);
-                Assert.True(step.NamedOutputs.ContainsKey("TRANSLATED_SUMMARY"));
+                Assert.Equal("French", step.Parameters["language"]);
+                Assert.True(step.Outputs.Contains("TRANSLATED_SUMMARY"));
             },
             step =>
             {
                 Assert.Equal("email", step.SkillName);
                 Assert.Equal("GetEmailAddressAsync", step.Name);
-                Assert.Equal("John Doe", step.NamedParameters["input"]);
-                Assert.True(step.NamedOutputs.ContainsKey("EMAIL_ADDRESS"));
+                Assert.Equal("John Doe", step.Parameters["input"]);
+                Assert.True(step.Outputs.Contains("EMAIL_ADDRESS"));
             },
             step =>
             {
                 Assert.Equal("email", step.SkillName);
                 Assert.Equal("SendEmailAsync", step.Name);
-                Assert.Equal("$TRANSLATED_SUMMARY", step.NamedParameters["input"]);
-                Assert.Equal("$EMAIL_ADDRESS", step.NamedParameters["email_address"]);
+                Assert.Equal("$TRANSLATED_SUMMARY", step.Parameters["input"]);
+                Assert.Equal("$EMAIL_ADDRESS", step.Parameters["email_address"]);
             }
         );
     }
@@ -179,7 +166,7 @@ public class SequentialPlanParserTests
         var planString = "<someTag>";
 
         // Act
-        Assert.Throws<PlanningException>(() => planString.ToPlanFromXml(GoalText, kernel.CreateNewContext()));
+        Assert.Throws<PlanningException>(() => planString.ToPlanFromXml(GoalText, SequentialPlanParser.GetSkillFunction(kernel.CreateNewContext())));
     }
 
     // Test that contains a #text node in the plan
@@ -199,16 +186,122 @@ public class SequentialPlanParserTests
         this.CreateKernelAndFunctionCreateMocks(functions, out var kernel);
 
         // Act
-        var plan = planText.ToPlanFromXml(goalText, kernel.CreateNewContext());
+        var plan = planText.ToPlanFromXml(goalText, SequentialPlanParser.GetSkillFunction(kernel.CreateNewContext()));
 
         // Assert
         Assert.NotNull(plan);
         Assert.Equal(goalText, plan.Description);
-        Assert.Equal(2, plan.Steps.Count);
+        Assert.Equal(1, plan.Steps.Count);
         Assert.Equal("MockSkill", plan.Steps[0].SkillName);
         Assert.Equal("Echo", plan.Steps[0].Name);
-        Assert.Equal("This is some text", plan.Steps[1].Description);
-        Assert.Equal(0, plan.Steps[1].Steps.Count);
+    }
+
+    // Test that contains a #text node in the plan
+    [Theory]
+    [InlineData(@"
+    <plan>
+    <function.MockSkill.Echo input=""Hello World"" />
+    <function.MockSkill.DoesNotExist input=""Hello World"" />
+    </plan>", true)]
+    [InlineData(@"
+    <plan>
+    <function.MockSkill.Echo input=""Hello World"" />
+    <function.MockSkill.DoesNotExist input=""Hello World"" />
+    </plan>", false)]
+    public void CanCreatePlanWithInvalidFunctionNodes(string planText, bool allowMissingFunctions)
+    {
+        // Arrange
+        var functions = new List<(string name, string skillName, string description, bool isSemantic, string result)>()
+        {
+            ("Echo", "MockSkill", "Echo an input", true, "Mock Echo Result"),
+        };
+        this.CreateKernelAndFunctionCreateMocks(functions, out var kernel);
+
+        // Act
+        if (allowMissingFunctions)
+        {
+            // it should not throw
+            var plan = planText.ToPlanFromXml(string.Empty, SequentialPlanParser.GetSkillFunction(kernel.CreateNewContext()), allowMissingFunctions);
+
+            // Assert
+            Assert.NotNull(plan);
+            Assert.Equal(2, plan.Steps.Count);
+
+            Assert.Equal("MockSkill", plan.Steps[0].SkillName);
+            Assert.Equal("Echo", plan.Steps[0].Name);
+            Assert.Null(plan.Steps[0].Description);
+
+            Assert.Equal(plan.GetType().FullName, plan.Steps[1].SkillName);
+            Assert.Equal(string.Empty, plan.Steps[1].Name);
+            Assert.Equal("MockSkill.DoesNotExist", plan.Steps[1].Description);
+        }
+        else
+        {
+            Assert.Throws<PlanningException>(() => planText.ToPlanFromXml(string.Empty, SequentialPlanParser.GetSkillFunction(kernel.CreateNewContext()), allowMissingFunctions));
+        }
+    }
+
+    [Theory]
+    [InlineData("Test the functionFlowRunner", @"Possible result: <goal>Test the functionFlowRunner</goal>
+    <plan>
+    <function.MockSkill.Echo input=""Hello World"" />
+    This is some text
+    </plan>")]
+    [InlineData("Test the functionFlowRunner", @"
+    <plan>
+    <function.MockSkill.Echo input=""Hello World"" />
+    This is some text
+    </plan>
+
+    plan end")]
+    [InlineData("Test the functionFlowRunner", @"
+    <plan>
+    <function.MockSkill.Echo input=""Hello World"" />
+    This is some text
+    </plan>
+
+    plan <xml> end")]
+    public void CanCreatePlanWithOtherText(string goalText, string planText)
+    {
+        // Arrange
+        var functions = new List<(string name, string skillName, string description, bool isSemantic, string result)>()
+        {
+            ("Echo", "MockSkill", "Echo an input", true, "Mock Echo Result"),
+        };
+        this.CreateKernelAndFunctionCreateMocks(functions, out var kernel);
+
+        // Act
+        var plan = planText.ToPlanFromXml(goalText, SequentialPlanParser.GetSkillFunction(kernel.CreateNewContext()));
+
+        // Assert
+        Assert.NotNull(plan);
+        Assert.Equal(goalText, plan.Description);
+        Assert.Equal(1, plan.Steps.Count);
+        Assert.Equal("MockSkill", plan.Steps[0].SkillName);
+        Assert.Equal("Echo", plan.Steps[0].Name);
+    }
+
+    [Theory]
+    [InlineData(@"<plan> <function.CodeSearch.codesearchresults_post organization=""MyOrg"" project=""Proj"" api_version=""7.1-preview.1"" server_url=""https://faketestorg.dev.azure.com/"" payload=""{&quot;searchText&quot;:&quot;test&quot;,&quot;$top&quot;:3,&quot;filters&quot;:{&quot;Repository/Project&quot;:[&quot;Proj&quot;],&quot;Repository/Repository&quot;:[&quot;Repo&quot;]}}"" content_type=""application/json"" appendToResult=""RESULT__TOP_THREE_RESULTS"" /> </plan>")]
+    [InlineData("<plan>\n  <function.CodeSearch.codesearchresults_post organization=\"MyOrg\" project=\"MyProject\" api_version=\"7.1-preview.1\" payload=\"{&quot;searchText&quot;: &quot;MySearchText&quot;, &quot;filters&quot;: {&quot;pathFilters&quot;: [&quot;MyRepo&quot;]} }\" setContextVariable=\"SEARCH_RESULTS\"/>\n</plan><!-- END -->")]
+    [InlineData("<plan>\n  <function.CodeSearch.codesearchresults_post organization=\"MyOrg\" project=\"MyProject\" api_version=\"7.1-preview.1\" server_url=\"https://faketestorg.dev.azure.com/\" payload=\"{ 'searchText': 'MySearchText', 'filters': { 'Project': ['MyProject'], 'Repository': ['MyRepo'] }, 'top': 3, 'skip': 0 }\" content_type=\"application/json\" appendToResult=\"RESULT__TOP_THREE_RESULTS\" />\n</plan><!-- END -->")]
+    public void CanCreatePlanWithOpenApiPlugin(string planText)
+    {
+        // Arrange
+        var functions = new List<(string name, string skillName, string description, bool isSemantic, string result)>()
+        {
+            ("codesearchresults_post", "CodeSearch", "Echo an input", true, "Mock Echo Result"),
+        };
+        this.CreateKernelAndFunctionCreateMocks(functions, out var kernel);
+
+        // Act
+        var plan = planText.ToPlanFromXml(string.Empty, SequentialPlanParser.GetSkillFunction(kernel.CreateNewContext()));
+
+        // Assert
+        Assert.NotNull(plan);
+        Assert.Equal(1, plan.Steps.Count);
+        Assert.Equal("CodeSearch", plan.Steps[0].SkillName);
+        Assert.Equal("codesearchresults_post", plan.Steps[0].Name);
     }
 
     // test that a <tag> that is not <function> will just get skipped
@@ -228,17 +321,16 @@ public class SequentialPlanParserTests
         this.CreateKernelAndFunctionCreateMocks(functions, out var kernel);
 
         // Act
-        var plan = planText.ToPlanFromXml(goalText, kernel.CreateNewContext());
+        var plan = planText.ToPlanFromXml(goalText, SequentialPlanParser.GetSkillFunction(kernel.CreateNewContext()));
 
         // Assert
         Assert.NotNull(plan);
         Assert.Equal(goalText, plan.Description);
-        Assert.Equal(3, plan.Steps.Count);
+        Assert.Equal(2, plan.Steps.Count);
         Assert.Equal("MockSkill", plan.Steps[0].SkillName);
         Assert.Equal("Echo", plan.Steps[0].Name);
-        Assert.Equal("Some other tag", plan.Steps[1].Description);
         Assert.Equal(0, plan.Steps[1].Steps.Count);
-        Assert.Equal("MockSkill", plan.Steps[2].SkillName);
-        Assert.Equal("Echo", plan.Steps[2].Name);
+        Assert.Equal("MockSkill", plan.Steps[1].SkillName);
+        Assert.Equal("Echo", plan.Steps[1].Name);
     }
 }

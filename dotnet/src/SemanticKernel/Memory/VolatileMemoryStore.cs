@@ -153,12 +153,10 @@ public class VolatileMemoryStore : IMemoryStore
             embeddingCollection = collectionDict.Values;
         }
 
-        if (embeddingCollection == null || !embeddingCollection.Any())
+        if (embeddingCollection == null || embeddingCollection.Count == 0)
         {
             return AsyncEnumerable.Empty<(MemoryRecord, double)>();
         }
-
-        EmbeddingReadOnlySpan<float> embeddingSpan = new(embedding.AsReadOnlySpan());
 
         TopNCollection<MemoryRecord> embeddings = new(limit);
 

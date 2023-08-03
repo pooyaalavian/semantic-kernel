@@ -2,65 +2,61 @@
 
 using System.Collections.Generic;
 
+#pragma warning disable CA1710
+
 namespace Microsoft.SemanticKernel.AI.ChatCompletion;
 
-public class ChatHistory
+/// <summary>
+/// Chat message history representation
+/// </summary>
+public class ChatHistory : List<ChatMessageBase>
 {
-    public enum AuthorRoles
+    private sealed class ChatMessage : ChatMessageBase
     {
-        Unknown = -1,
-        System = 0,
-        User = 1,
-        Assistant = 2,
-    }
-
-    /// <summary>
-    /// Chat message representation
-    /// </summary>
-    public class Message
-    {
-        /// <summary>
-        /// Role of the message author, e.g. user/assistant/system
-        /// </summary>
-        public AuthorRoles AuthorRole { get; set; }
-
-        /// <summary>
-        /// Message content
-        /// </summary>
-        public string Content { get; set; }
-
-        /// <summary>
-        /// Create a new instance
-        /// </summary>
-        /// <param name="authorRole">Role of message author</param>
-        /// <param name="content">Message content</param>
-        public Message(AuthorRoles authorRole, string content)
+        public ChatMessage(AuthorRole authorRole, string content) : base(authorRole, content)
         {
-            this.AuthorRole = authorRole;
-            this.Content = content;
         }
     }
 
     /// <summary>
     /// List of messages in the chat
     /// </summary>
-    public List<Message> Messages { get; }
-
-    /// <summary>
-    /// Create a new instance of the chat content class
-    /// </summary>
-    public ChatHistory()
-    {
-        this.Messages = new List<Message>();
-    }
+    public List<ChatMessageBase> Messages => this;
 
     /// <summary>
     /// Add a message to the chat history
     /// </summary>
     /// <param name="authorRole">Role of the message author</param>
     /// <param name="content">Message content</param>
-    public void AddMessage(AuthorRoles authorRole, string content)
+    public void AddMessage(AuthorRole authorRole, string content)
     {
-        this.Messages.Add(new Message(authorRole, content));
+        this.Add(new ChatMessage(authorRole, content));
+    }
+
+    /// <summary>
+    /// Add a user message to the chat history
+    /// </summary>
+    /// <param name="content">Message content</param>
+    public void AddUserMessage(string content)
+    {
+        this.AddMessage(AuthorRole.User, content);
+    }
+
+    /// <summary>
+    /// Add an assistant message to the chat history
+    /// </summary>
+    /// <param name="content">Message content</param>
+    public void AddAssistantMessage(string content)
+    {
+        this.AddMessage(AuthorRole.Assistant, content);
+    }
+
+    /// <summary>
+    /// Add a system message to the chat history
+    /// </summary>
+    /// <param name="content">Message content</param>
+    public void AddSystemMessage(string content)
+    {
+        this.AddMessage(AuthorRole.System, content);
     }
 }

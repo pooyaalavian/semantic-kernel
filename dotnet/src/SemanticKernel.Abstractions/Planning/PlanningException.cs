@@ -5,22 +5,13 @@ using Microsoft.SemanticKernel.Diagnostics;
 
 namespace Microsoft.SemanticKernel.Planning;
 
-#pragma warning disable CA1032 // Implement standard exception constructors
+#pragma warning disable RCS1194 // Implement exception constructors
 
 /// <summary>
 /// Exception thrown for errors related to planning.
 /// </summary>
 public class PlanningException : SKException
 {
-    /// <summary>
-    /// Initializes a new instance of the <see cref="PlanningException"/> class with a provided error code.
-    /// </summary>
-    /// <param name="errorCode">The error code.</param>
-    public PlanningException(ErrorCodes errorCode)
-        : this(errorCode, message: null, innerException: null)
-    {
-    }
-
     /// <summary>
     /// Initializes a new instance of the <see cref="PlanningException"/> class with a provided error code and message.
     /// </summary>
@@ -37,7 +28,7 @@ public class PlanningException : SKException
     /// <param name="errorCode">The error code.</param>
     /// <param name="message">A string that describes the error.</param>
     /// <param name="innerException">The exception that is the cause of the current exception.</param>
-    public PlanningException(ErrorCodes errorCode, string? message, Exception? innerException)
+    public PlanningException(ErrorCodes errorCode, string? message = null, Exception? innerException = null)
         : base(GetDefaultMessage(errorCode, message), innerException)
     {
         this.ErrorCode = errorCode;
@@ -56,6 +47,7 @@ public class PlanningException : SKException
             ErrorCodes.InvalidGoal => "Invalid goal",
             ErrorCodes.InvalidPlan => "Invalid plan",
             ErrorCodes.InvalidConfiguration => "Invalid configuration",
+            ErrorCodes.CreatePlanError => "Create plan error",
             _ => $"Unknown error ({errorCode:G})",
         };
 
@@ -86,5 +78,10 @@ public class PlanningException : SKException
         /// Invalid configuration.
         /// </summary>
         InvalidConfiguration,
+
+        /// <summary>
+        /// Create plan error.
+        /// </summary>
+        CreatePlanError,
     }
 }

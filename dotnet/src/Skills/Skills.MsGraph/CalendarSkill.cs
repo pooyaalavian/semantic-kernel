@@ -1,7 +1,12 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
-using System.Globalization;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -15,7 +20,7 @@ namespace Microsoft.SemanticKernel.Skills.MsGraph;
 /// <summary>
 /// Skill for calendar operations.
 /// </summary>
-public class CalendarSkill
+public sealed class CalendarSkill
 {
     /// <summary>
     /// <see cref="ContextVariables"/> parameter names.
@@ -46,10 +51,25 @@ public class CalendarSkill
         /// Event's attendees, separated by ',' or ';'.
         /// </summary>
         public const string Attendees = "attendees";
+
+        /// <summary>
+        /// The name of the top parameter used to limit the number of results returned in the response.
+        /// </summary>
+        public const string MaxResults = "maxResults";
+
+        /// <summary>
+        /// The name of the skip parameter used to skip a certain number of results in the response.
+        /// </summary>
+        public const string Skip = "skip";
     }
 
     private readonly ICalendarConnector _connector;
     private readonly ILogger<CalendarSkill> _logger;
+    private static readonly JsonSerializerOptions s_options = new()
+    {
+        WriteIndented = false,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CalendarSkill"/> class.
@@ -67,56 +87,55 @@ public class CalendarSkill
     /// <summary>
     /// Add an event to my calendar using <see cref="ContextVariables.Input"/> as the subject.
     /// </summary>
-    [SKFunction("Add an event to my calendar.")]
-    [SKFunctionInput(Description = "Event subject")]
-    [SKFunctionContextParameter(Name = Parameters.Start, Description = "Event start date/time as DateTimeOffset")]
-    [SKFunctionContextParameter(Name = Parameters.End, Description = "Event end date/time as DateTimeOffset")]
-    [SKFunctionContextParameter(Name = Parameters.Location, Description = "Event location (optional)")]
-    [SKFunctionContextParameter(Name = Parameters.Content, Description = "Event content/body (optional)")]
-    [SKFunctionContextParameter(Name = Parameters.Attendees, Description = "Event attendees, separated by ',' or ';'.")]
-    public async Task AddEventAsync(string subject, SKContext context)
+    [SKFunction, Description("Add an event to my calendar.")]
+    public async Task AddEventAsync(
+        [Description("Event subject"), SKName("input")] string subject,
+        [Description("Event start date/time as DateTimeOffset")] DateTimeOffset start,
+        [Description("Event end date/time as DateTimeOffset")] DateTimeOffset end,
+        [Description("Event location (optional)")] string? location = null,
+        [Description("Event content/body (optional)")] string? content = null,
+        [Description("Event attendees, separated by ',' or ';'.")] string? attendees = null)
     {
-        ContextVariables memory = context.Variables;
-
         if (string.IsNullOrWhiteSpace(subject))
         {
-            context.Fail($"Missing variables input to use as event subject.");
-            return;
+            throw new ArgumentException($"{nameof(subject)} variable was null or whitespace", nameof(subject));
         }
 
-        if (!memory.Get(Parameters.Start, out string start))
+        CalendarEvent calendarEvent = new()
         {
-            context.Fail($"Missing variable {Parameters.Start}.");
-            return;
-        }
+            Subject = subject,
+            Start = start,
+            End = end,
+            Location = location,
+            Content = content,
+            Attendees = attendees is not null ? attendees.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries) : Enumerable.Empty<string>(),
+        };
 
-        if (!memory.Get(Parameters.End, out string end))
-        {
-            context.Fail($"Missing variable {Parameters.End}.");
-            return;
-        }
-
-        CalendarEvent calendarEvent = new CalendarEvent(
-            memory.Input,
-            DateTimeOffset.Parse(start, CultureInfo.InvariantCulture.DateTimeFormat),
-            DateTimeOffset.Parse(end, CultureInfo.InvariantCulture.DateTimeFormat));
-
-        if (memory.Get(Parameters.Location, out string location))
-        {
-            calendarEvent.Location = location;
-        }
-
-        if (memory.Get(Parameters.Content, out string content))
-        {
-            calendarEvent.Content = content;
-        }
-
-        if (memory.Get(Parameters.Attendees, out string attendees))
-        {
-            calendarEvent.Attendees = attendees.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
-        }
-
-        this._logger.LogInformation("Adding calendar event '{0}'", calendarEvent.Subject);
+        // Sensitive data, logging as trace, disabled by default
+        this._logger.LogTrace("Adding calendar event '{0}'", calendarEvent.Subject);
         await this._connector.AddEventAsync(calendarEvent).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Get calendar events with specified optional clauses used to query for messages.
+    /// </summary>
+    [SKFunction, Description("Get calendar events.")]
+    public async Task<string> GetCalendarEventsAsync(
+        [Description("Optional limit of the number of events to retrieve.")] int? maxResults = 10,
+        [Description("Optional number of events to skip before retrieving results.")] int? skip = 0,
+        CancellationToken cancellationToken = default)
+    {
+        this._logger.LogDebug("Getting calendar events with query options top: '{0}', skip:'{1}'.", maxResults, skip);
+
+        const string SelectString = "start,subject,organizer,location";
+
+        IEnumerable<CalendarEvent> events = await this._connector.GetEventsAsync(
+            top: maxResults,
+            skip: skip,
+            select: SelectString,
+            cancellationToken
+        ).ConfigureAwait(false);
+
+        return JsonSerializer.Serialize(value: events, options: s_options);
     }
 }

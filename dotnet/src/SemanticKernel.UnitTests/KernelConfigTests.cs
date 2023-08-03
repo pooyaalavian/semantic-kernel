@@ -19,7 +19,7 @@ public class KernelConfigTests
     {
         var kernelConfig = new KernelConfig();
         this._kernel = new Mock<IKernel>();
-        this._kernel.SetupGet(x => x.Log).Returns(NullLogger.Instance);
+        this._kernel.SetupGet(x => x.Logger).Returns(NullLogger.Instance);
         this._kernel.SetupGet(x => x.Config).Returns(kernelConfig);
     }
 
@@ -73,27 +73,5 @@ public class KernelConfigTests
         // Act
         // Assert
         Assert.IsType<DefaultHttpRetryHandlerFactory>(config.HttpHandlerFactory);
-    }
-
-    [Fact]
-    public void ItFailsWhenSetNonExistentTextCompletionService()
-    {
-        var target = new KernelConfig();
-        var exception = Assert.Throws<KernelException>(() =>
-        {
-            target.SetDefaultTextCompletionService("azure");
-        });
-        Assert.Equal(KernelException.ErrorCodes.ServiceNotFound, exception.ErrorCode);
-    }
-
-    [Fact]
-    public void ItFailsWhenSetNonExistentEmbeddingService()
-    {
-        var target = new KernelConfig();
-        var exception = Assert.Throws<KernelException>(() =>
-        {
-            target.SetDefaultTextEmbeddingGenerationService("azure");
-        });
-        Assert.Equal(KernelException.ErrorCodes.ServiceNotFound, exception.ErrorCode);
     }
 }

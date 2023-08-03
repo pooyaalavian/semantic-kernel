@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,20 +9,21 @@ using Google.Apis.CustomSearchAPI.v1;
 using Google.Apis.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.SemanticKernel.Diagnostics;
 
 namespace Microsoft.SemanticKernel.Skills.Web.Google;
 
 /// <summary>
 /// Google search connector.
 /// </summary>
-public class GoogleConnector : IWebSearchEngineConnector, IDisposable
+public sealed class GoogleConnector : IWebSearchEngineConnector, IDisposable
 {
     private readonly ILogger _logger;
     private readonly CustomSearchAPIService _search;
     private readonly string? _searchEngineId;
 
     /// <summary>
-    /// Google search connector
+    /// Google search connector.
     /// </summary>
     /// <param name="apiKey">Google Custom Search API (looks like "ABcdEfG1...")</param>
     /// <param name="searchEngineId">Google Search Engine ID (looks like "a12b345...")</param>
@@ -29,29 +31,55 @@ public class GoogleConnector : IWebSearchEngineConnector, IDisposable
     public GoogleConnector(
         string apiKey,
         string searchEngineId,
+        ILogger<GoogleConnector>? logger = null) : this(new BaseClientService.Initializer { ApiKey = apiKey }, searchEngineId, logger)
+    {
+        Verify.NotNullOrWhiteSpace(apiKey);
+    }
+
+    /// <summary>
+    /// Google search connector.
+    /// </summary>
+    /// <param name="initializer">The connector initializer</param>
+    /// <param name="searchEngineId">Google Search Engine ID (looks like "a12b345...")</param>
+    /// <param name="logger">Optional logger</param>
+    public GoogleConnector(
+        BaseClientService.Initializer initializer,
+        string searchEngineId,
         ILogger<GoogleConnector>? logger = null)
     {
-        this._search = new CustomSearchAPIService(new BaseClientService.Initializer { ApiKey = apiKey });
+        Verify.NotNull(initializer);
+        Verify.NotNullOrWhiteSpace(searchEngineId);
+
+        this._search = new CustomSearchAPIService(initializer);
         this._searchEngineId = searchEngineId;
         this._logger = logger ?? NullLogger<GoogleConnector>.Instance;
     }
 
     /// <inheritdoc/>
-    public async Task<string> SearchAsync(string query, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<string>> SearchAsync(
+        string query,
+        int count,
+        int offset,
+        CancellationToken cancellationToken)
     {
+        if (count <= 0) { throw new ArgumentOutOfRangeException(nameof(count)); }
+
+        if (count > 10) { throw new ArgumentOutOfRangeException(nameof(count), $"{nameof(count)} value must be between 0 and 10, inclusive."); }
+
+        if (offset < 0) { throw new ArgumentOutOfRangeException(nameof(offset)); }
+
         var search = this._search.Cse.List();
         search.Cx = this._searchEngineId;
         search.Q = query;
+        search.Num = count;
+        search.Start = offset;
 
         var results = await search.ExecuteAsync(cancellationToken).ConfigureAwait(false);
 
-        var first = results.Items?.FirstOrDefault();
-        this._logger.LogDebug("Result: {Title}, {Link}, {Snippet}", first?.Title, first?.Link, first?.Snippet);
-
-        return first?.Snippet ?? string.Empty;
+        return results.Items.Select(item => item.Snippet);
     }
 
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
         if (disposing)
         {

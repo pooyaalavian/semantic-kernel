@@ -2,7 +2,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -30,8 +29,6 @@ public class SqliteMemoryStore : IMemoryStore, IDisposable
     /// </summary>
     /// <param name="filename">Path to the database file. If file does not exist, it will be created.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    [SuppressMessage("Design", "CA1000:Do not declare static members on generic types",
-        Justification = "Static factory method used to ensure successful connection.")]
     public static async Task<SqliteMemoryStore> ConnectAsync(string filename,
         CancellationToken cancellationToken = default)
     {
@@ -212,7 +209,7 @@ public class SqliteMemoryStore : IMemoryStore, IDisposable
     private SqliteMemoryStore(string filename)
     {
         this._dbConnector = new Database();
-        this._dbConnection = new SqliteConnection($@"Data Source={filename};");
+        this._dbConnection = new SqliteConnection($"Data Source={filename};");
         this._disposedValue = false;
     }
 
@@ -274,33 +271,30 @@ public class SqliteMemoryStore : IMemoryStore, IDisposable
         return record.Key;
     }
 
-    private async Task<MemoryRecord?> InternalGetAsync(SqliteConnection connection, string collectionName, string key, bool withEmbedding, CancellationToken cancellationToken)
+    private async Task<MemoryRecord?> InternalGetAsync(
+        SqliteConnection connection,
+        string collectionName,
+        string key, bool withEmbedding,
+        CancellationToken cancellationToken)
     {
         DatabaseEntry? entry = await this._dbConnector.ReadAsync(connection, collectionName, key, cancellationToken).ConfigureAwait(false);
 
-        if (entry.HasValue)
+        if (!entry.HasValue) { return null; }
+
+        if (withEmbedding)
         {
-            if (withEmbedding)
-            {
-                return MemoryRecord.FromJsonMetadata(
-                    json: entry.Value.MetadataString,
-                    JsonSerializer.Deserialize<Embedding<float>>(entry.Value.EmbeddingString),
-                    entry.Value.Key,
-                    ParseTimestamp(entry.Value.Timestamp));
-            }
-            else
-            {
-                return MemoryRecord.FromJsonMetadata(
-                    json: entry.Value.MetadataString,
-                    Embedding<float>.Empty,
-                    entry.Value.Key,
-                    ParseTimestamp(entry.Value.Timestamp));
-            }
+            return MemoryRecord.FromJsonMetadata(
+                json: entry.Value.MetadataString,
+                JsonSerializer.Deserialize<Embedding<float>>(entry.Value.EmbeddingString),
+                entry.Value.Key,
+                ParseTimestamp(entry.Value.Timestamp));
         }
-        else
-        {
-            return null;
-        }
+
+        return MemoryRecord.FromJsonMetadata(
+            json: entry.Value.MetadataString,
+            Embedding<float>.Empty,
+            entry.Value.Key,
+            ParseTimestamp(entry.Value.Timestamp));
     }
 
     #endregion

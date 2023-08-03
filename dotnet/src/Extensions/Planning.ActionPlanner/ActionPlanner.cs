@@ -2,9 +2,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -27,10 +30,15 @@ namespace Microsoft.SemanticKernel.Planning;
 /// The rationale is currently available only in the prompt, we might include it in
 /// the Plan object in future.
 /// </summary>
-public sealed class ActionPlanner
+public sealed class ActionPlanner : IActionPlanner
 {
     private const string StopSequence = "#END-OF-PLAN";
     private const string SkillName = "this";
+
+    /// <summary>
+    /// The regular expression for extracting serialized plan.
+    /// </summary>
+    private static readonly Regex PlanRegex = new("^[^{}]*(((?'Open'{)[^{}]*)+((?'Close-Open'})[^{}]*)+)*(?(Open)(?!))", RegexOptions.Singleline | RegexOptions.Compiled);
 
     // Planner semantic function
     private readonly ISKFunction _plannerFunction;
@@ -70,31 +78,18 @@ public sealed class ActionPlanner
         this._context = kernel.CreateNewContext();
     }
 
-    public async Task<Plan> CreatePlanAsync(string goal)
+    /// <inheritdoc />
+    public async Task<Plan> CreatePlanAsync(string goal, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(goal))
         {
             throw new PlanningException(PlanningException.ErrorCodes.InvalidGoal, "The goal specified is empty");
         }
 
-        SKContext result = await this._plannerFunction.InvokeAsync(goal, this._context).ConfigureAwait(false);
+        this._context.Variables.Update(goal);
 
-        ActionPlanResponse? planData;
-        try
-        {
-            planData = JsonSerializer.Deserialize<ActionPlanResponse?>(result.ToString(), new JsonSerializerOptions
-            {
-                AllowTrailingCommas = true,
-                DictionaryKeyPolicy = null,
-                DefaultIgnoreCondition = JsonIgnoreCondition.Never,
-                PropertyNameCaseInsensitive = true,
-            });
-        }
-        catch (Exception e)
-        {
-            throw new PlanningException(PlanningException.ErrorCodes.InvalidPlan,
-                "Plan parsing error, invalid JSON", e);
-        }
+        SKContext result = await this._plannerFunction.InvokeAsync(this._context, cancellationToken: cancellationToken).ConfigureAwait(false);
+        ActionPlanResponse? planData = this.ParsePlannerResult(result);
 
         if (planData == null)
         {
@@ -119,21 +114,16 @@ public sealed class ActionPlanner
         }
 
         // Create a plan using the function and the parameters suggested by the planner
-        var variables = new ContextVariables();
         foreach (KeyValuePair<string, object> p in planData.Plan.Parameters)
         {
             if (p.Value != null)
             {
-                plan.State[p.Key] = p.Value.ToString();
+                plan.Parameters[p.Key] = p.Value.ToString();
             }
         }
 
-        var context = this._kernel.CreateNewContext();
-        context.Variables.Update(variables);
-
         return plan;
     }
-
 
     // TODO: use goal to find relevant functions in a skill store
     /// <summary>
@@ -143,10 +133,10 @@ public sealed class ActionPlanner
     /// <param name="goal">Currently unused. Will be used to handle long lists of functions.</param>
     /// <param name="context">Function execution context</param>
     /// <returns>List of functions, formatted accordingly to the prompt</returns>
-    [SKFunction("List all functions available in the kernel")]
-    [SKFunctionName("ListOfFunctions")]
-    [SKFunctionInput(Description = "The current goal processed by the planner", DefaultValue = "")]
-    public string ListOfFunctions(string goal, SKContext context)
+    [SKFunction, Description("List all functions available in the kernel")]
+    public string ListOfFunctions(
+        [Description("The current goal processed by the planner")] string goal,
+        SKContext context)
     {
         Verify.NotNull(context.Skills);
         var functionsAvailable = context.Skills.GetFunctionsView();
@@ -161,47 +151,47 @@ public sealed class ActionPlanner
 
     // TODO: generate string programmatically
     // TODO: use goal to find relevant examples
-    [SKFunction("List a few good examples of plans to generate")]
-    [SKFunctionName("GoodExamples")]
-    [SKFunctionInput(Description = "The current goal processed by the planner", DefaultValue = "")]
-    public string GoodExamples(string goal, SKContext context)
+    [SKFunction, Description("List a few good examples of plans to generate")]
+    public string GoodExamples(
+        [Description("The current goal processed by the planner")] string goal,
+        SKContext context)
     {
-        return """
+        return @"
 [EXAMPLE]
 - List of functions:
 // Read a file.
 FileIOSkill.ReadAsync
-Parameter "path": Source file.
+Parameter ""path"": Source file.
 // Write a file.
 FileIOSkill.WriteAsync
-Parameter "path": Destination file.
-Parameter "content": File content.
+Parameter ""path"": Destination file. (default value: sample.txt)
+Parameter ""content"": File content.
 // Get the current time.
 TimeSkill.Time
 No parameters.
 // Makes a POST request to a uri.
 HttpSkill.PostAsync
-Parameter "body": The body of the request.
+Parameter ""body"": The body of the request.
 - End list of functions.
-Goal: create a file called "something.txt".
-{"plan":{
-"rationale": "the list contains a function that allows to create files",
-"function": "FileIOSkill.WriteAsync",
-"parameters": {
-"path": "something.txt",
-"content": null
+Goal: create a file called ""something.txt"".
+{""plan"":{
+""rationale"": ""the list contains a function that allows to create files"",
+""function"": ""FileIOSkill.WriteAsync"",
+""parameters"": {
+""path"": ""something.txt"",
+""content"": null
 }}}
 #END-OF-PLAN
-""";
+";
     }
 
     // TODO: generate string programmatically
-    [SKFunction("List a few edge case examples of plans to handle")]
-    [SKFunctionName("EdgeCaseExamples")]
-    [SKFunctionInput(Description = "The current goal processed by the planner", DefaultValue = "")]
-    public string EdgeCaseExamples(string goal, SKContext context)
+    [SKFunction, Description("List a few edge case examples of plans to handle")]
+    public string EdgeCaseExamples(
+        [Description("The current goal processed by the planner")] string goal,
+        SKContext context)
     {
-        return """
+        return @"
 [EXAMPLE]
 - List of functions:
 // Get the current time.
@@ -209,23 +199,60 @@ TimeSkill.Time
 No parameters.
 // Write a file.
 FileIOSkill.WriteAsync
-Parameter "path": Destination file.
-Parameter "content": File content.
+Parameter ""path"": Destination file. (default value: sample.txt)
+Parameter ""content"": File content.
 // Makes a POST request to a uri.
 HttpSkill.PostAsync
-Parameter "body": The body of the request.
+Parameter ""body"": The body of the request.
 // Read a file.
 FileIOSkill.ReadAsync
-Parameter "path": Source file.
+Parameter ""path"": Source file.
 - End list of functions.
 Goal: tell me a joke.
-{"plan":{
-"rationale": "the list does not contain functions to tell jokes or something funny",
-"function": "",
-"parameters": {
+{""plan"":{
+""rationale"": ""the list does not contain functions to tell jokes or something funny"",
+""function"": """",
+""parameters"": {
 }}}
 #END-OF-PLAN
-""";
+";
+    }
+
+    #region private ================================================================================
+
+    /// <summary>
+    /// Native function that filters out good JSON from planner result in case additional text is present
+    /// using a similar regex to the balancing group regex defined here: https://learn.microsoft.com/en-us/dotnet/standard/base-types/grouping-constructs-in-regular-expressions#balancing-group-definitions
+    /// </summary>
+    /// <param name="plannerResult">Result context of planner function.</param>
+    /// <returns>Instance of <see cref="ActionPlanResponse"/> object deserialized from extracted JSON.</returns>
+    private ActionPlanResponse? ParsePlannerResult(SKContext plannerResult)
+    {
+        Match match = PlanRegex.Match(plannerResult.ToString());
+
+        if (match.Success && match.Groups["Close"].Length > 0)
+        {
+            string planJson = $"{{{match.Groups["Close"]}}}";
+            try
+            {
+                return JsonSerializer.Deserialize<ActionPlanResponse?>(planJson, new JsonSerializerOptions
+                {
+                    AllowTrailingCommas = true,
+                    DictionaryKeyPolicy = null,
+                    DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+                    PropertyNameCaseInsensitive = true,
+                });
+            }
+            catch (Exception e)
+            {
+                throw new PlanningException(PlanningException.ErrorCodes.InvalidPlan,
+                    "Plan parsing error, invalid JSON", e);
+            }
+        }
+        else
+        {
+            throw new PlanningException(PlanningException.ErrorCodes.InvalidPlan, $"Failed to extract valid json string from planner result: '{plannerResult}'");
+        }
     }
 
     private void PopulateList(StringBuilder list, IDictionary<string, List<FunctionView>> functions)
@@ -244,7 +271,7 @@ Goal: tell me a joke.
                 }
                 else
                 {
-                    this._logger.LogWarning("{0}.{1} is missing a description.", func.SkillName, func.Name);
+                    this._logger.LogWarning("{0}.{1} is missing a description", func.SkillName, func.Name);
                     list.AppendLine($"// Function {func.SkillName}.{func.Name}.");
                 }
 
@@ -254,8 +281,9 @@ Goal: tell me a joke.
                 // Function parameters
                 foreach (var p in func.Parameters)
                 {
-                    var description = string.IsNullOrEmpty(p.Description) ? p.Name : p.Description;
-                    list.AppendLine($"Parameter \"{p.Name}\": {AddPeriod(description)}");
+                    var description = string.IsNullOrEmpty(p.Description) ? p.Name : p.Description!;
+                    var defaultValueString = string.IsNullOrEmpty(p.DefaultValue) ? string.Empty : $" (default value: {p.DefaultValue})";
+                    list.AppendLine($"Parameter \"{p.Name}\": {AddPeriod(description)} {defaultValueString}");
                 }
             }
         }
@@ -265,4 +293,6 @@ Goal: tell me a joke.
     {
         return x.EndsWith(".", StringComparison.Ordinal) ? x : $"{x}.";
     }
+
+    #endregion
 }

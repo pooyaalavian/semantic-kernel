@@ -6,7 +6,9 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel.AI.Embeddings;
+using Microsoft.SemanticKernel.Connectors.Memory.Pinecone;
 using Microsoft.SemanticKernel.Connectors.Memory.Qdrant;
 using Microsoft.SemanticKernel.Connectors.Memory.Qdrant.Diagnostics;
 using Microsoft.SemanticKernel.Memory;
@@ -29,18 +31,10 @@ public class QdrantMemoryStoreTests
     private readonly string _description = "description";
     private readonly string _description2 = "description2";
     private readonly string _description3 = "description3";
-    private readonly Embedding<float> _embedding = new Embedding<float>(new float[] { 1, 1, 1 });
-    private readonly Embedding<float> _embedding2 = new Embedding<float>(new float[] { 2, 2, 2 });
-    private readonly Embedding<float> _embedding3 = new Embedding<float>(new float[] { 3, 3, 3 });
-
-    [Fact]
-    public void ConnectionCanBeInitialized()
-    {
-        // Arrange
-        var httpMock = new Mock<HttpClient>();
-        var qdrantClient = new QdrantVectorDbClient("http://localhost", 3, 1000, httpMock.Object);
-        var db = new QdrantMemoryStore(qdrantClient);
-    }
+    private readonly Embedding<float> _embedding = new(new float[] { 1, 1, 1 });
+    private readonly Embedding<float> _embedding2 = new(new float[] { 2, 2, 2 });
+    private readonly Embedding<float> _embedding3 = new(new float[] { 3, 3, 3 });
+    private readonly Mock<ILogger<PineconeMemoryStore>> _mockLogger = new();
 
     [Fact]
     public async Task ItCreatesNewCollectionAsync()
@@ -53,7 +47,7 @@ public class QdrantMemoryStoreTests
         mockQdrantClient
             .Setup<Task>(x => x.CreateCollectionAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()));
 
-        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object);
+        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object, this._mockLogger.Object);
 
         // Act
         await vectorStore.CreateCollectionAsync("test");
@@ -76,7 +70,7 @@ public class QdrantMemoryStoreTests
         mockQdrantClient
             .Setup<Task>(x => x.CreateCollectionAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()));
 
-        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object);
+        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object, this._mockLogger.Object);
 
         // Act
         await vectorStore.CreateCollectionAsync("test");
@@ -97,14 +91,14 @@ public class QdrantMemoryStoreTests
             .Setup<IAsyncEnumerable<string>>(x => x.ListCollectionsAsync(It.IsAny<CancellationToken>()))
             .Returns((new string[] { "test1", "test2" }).ToAsyncEnumerable());
 
-        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object);
+        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object, this._mockLogger.Object);
 
         // Act
-        var collections = await vectorStore.GetCollectionsAsync().ToArrayAsync();
+        var collections = await vectorStore.GetCollectionsAsync().ToListAsync();
 
         // Assert
         mockQdrantClient.Verify<IAsyncEnumerable<string>>(x => x.ListCollectionsAsync(It.IsAny<CancellationToken>()), Times.Once());
-        Assert.Equal(2, collections.Length);
+        Assert.Equal(2, collections.Count);
         Assert.Equal("test1", collections[0]);
         Assert.Equal("test2", collections[1]);
     }
@@ -116,8 +110,11 @@ public class QdrantMemoryStoreTests
         var mockQdrantClient = new Mock<IQdrantVectorDbClient>();
         mockQdrantClient
             .Setup<Task>(x => x.DeleteCollectionAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()));
+        mockQdrantClient
+            .Setup<Task>(x => x.DoesCollectionExistAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.FromResult(true));
 
-        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object);
+        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object, this._mockLogger.Object);
 
         // Act
         await vectorStore.DeleteCollectionAsync("test");
@@ -151,7 +148,7 @@ public class QdrantMemoryStoreTests
             .Setup<Task>(x => x.UpsertVectorsAsync(It.IsAny<string>(), It.IsAny<IEnumerable<QdrantVectorRecord>>(), It.IsAny<CancellationToken>()))
             .Throws<HttpRequestException>();
 
-        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object);
+        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object, this._mockLogger.Object);
 
         // Assert
         await Assert.ThrowsAsync<QdrantMemoryException>(() => vectorStore.UpsertAsync("test_collection", memoryRecord));
@@ -181,7 +178,7 @@ public class QdrantMemoryStoreTests
         mockQdrantClient
             .Setup<Task>(x => x.UpsertVectorsAsync(It.IsAny<string>(), It.IsAny<IEnumerable<QdrantVectorRecord>>(), It.IsAny<CancellationToken>()));
 
-        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object);
+        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object, this._mockLogger.Object);
 
         // Act
         string guidString = await vectorStore.UpsertAsync("test_collection", memoryRecord);
@@ -223,7 +220,7 @@ public class QdrantMemoryStoreTests
         mockQdrantClient
             .Setup<Task>(x => x.UpsertVectorsAsync(It.IsAny<string>(), It.IsAny<IEnumerable<QdrantVectorRecord>>(), It.IsAny<CancellationToken>()));
 
-        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object);
+        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object, this._mockLogger.Object);
 
         // Act
         string guidString = await vectorStore.UpsertAsync("test_collection", memoryRecord);
@@ -275,7 +272,7 @@ public class QdrantMemoryStoreTests
         mockQdrantClient
             .Setup<Task>(x => x.UpsertVectorsAsync(It.IsAny<string>(), It.IsAny<IEnumerable<QdrantVectorRecord>>(), It.IsAny<CancellationToken>()));
 
-        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object);
+        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object, this._mockLogger.Object);
 
         // Act
         string guidString = await vectorStore.UpsertAsync("test_collection", memoryRecord);
@@ -326,7 +323,7 @@ public class QdrantMemoryStoreTests
         mockQdrantClient
             .Setup<Task>(x => x.UpsertVectorsAsync(It.IsAny<string>(), It.IsAny<IEnumerable<QdrantVectorRecord>>(), It.IsAny<CancellationToken>()));
 
-        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object);
+        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object, this._mockLogger.Object);
 
         // Act
         string guidString = await vectorStore.UpsertAsync("test_collection", memoryRecord);
@@ -378,7 +375,7 @@ public class QdrantMemoryStoreTests
         mockQdrantClient
             .Setup<Task>(x => x.UpsertVectorsAsync(It.IsAny<string>(), It.IsAny<IEnumerable<QdrantVectorRecord>>(), It.IsAny<CancellationToken>()));
 
-        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object);
+        var vectorStore = new QdrantMemoryStore(mockQdrantClient.Object, this._mockLogger.Object);
 
         // Act
         var keys = await vectorStore.UpsertBatchAsync("test_collection", new[] { memoryRecord, memoryRecord2, memoryRecord3 }).ToListAsync();

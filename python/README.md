@@ -33,11 +33,11 @@ kernel = sk.Kernel()
 
 # Prepare OpenAI service using credentials stored in the `.env` file
 api_key, org_id = sk.openai_settings_from_dot_env()
-kernel.config.add_text_completion_service("dv", OpenAITextCompletion("text-davinci-003", api_key, org_id))
+kernel.add_text_completion_service("dv", OpenAITextCompletion("text-davinci-003", api_key, org_id))
 
 # Alternative using Azure:
 # deployment, api_key, endpoint = sk.azure_openai_settings_from_dot_env()
-# kernel.config.add_text_completion_service("dv", AzureTextCompletion(deployment, endpoint, api_key))
+# kernel.add_text_completion_service("dv", AzureTextCompletion(deployment, endpoint, api_key))
 
 # Wrap your prompt in a function
 prompt = kernel.create_semantic_function("""
@@ -97,7 +97,13 @@ Python notebooks:
 * [Running AI prompts from file](../samples/notebooks/python/02-running-prompts-from-file.ipynb)
 * [Creating Semantic Functions at runtime (i.e. inline functions)](../samples/notebooks/python/03-semantic-function-inline.ipynb)
 * [Using Context Variables to Build a Chat Experience](../samples/notebooks/python/04-context-variables-chat.ipynb)
+* [Introduction to planners](../samples/notebooks/python/05-using-the-planner.ipynb)
 * [Building Memory with Embeddings](../samples/notebooks/python/06-memory-and-embeddings.ipynb)
+* [Using Hugging Face for Skills](../samples/notebooks/python/07-hugging-face-for-skills.ipynb)
+* [Combining native functions and semantic functions](../samples/notebooks/python/08-native-function-inline.ipynb)
+* [Groundedness Checking with Semantic Kernel](../samples/notebooks/python/09-groundedness-checking.ipynb)
+* [Returning multiple results per prompt](../samples/notebooks/python/10-multiple-results-per-prompt.ipynb)
+* [Streaming completions with Semantic Kernel](../samples/notebooks/python/11-streaming-completions.ipynb)
 
 # SK Frequently Asked Questions
 

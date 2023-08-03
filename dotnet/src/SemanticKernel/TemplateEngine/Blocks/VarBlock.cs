@@ -12,11 +12,11 @@ internal sealed class VarBlock : Block, ITextRendering
 
     internal string Name { get; } = string.Empty;
 
-    public VarBlock(string? content, ILogger? log = null) : base(content?.Trim(), log)
+    public VarBlock(string? content, ILogger? logger = null) : base(content?.Trim(), logger)
     {
         if (this.Content.Length < 2)
         {
-            this.Log.LogError("The variable name is empty");
+            this.Logger.LogError("The variable name is empty");
             return;
         }
 
@@ -32,21 +32,21 @@ internal sealed class VarBlock : Block, ITextRendering
         if (string.IsNullOrEmpty(this.Content))
         {
             errorMsg = $"A variable must start with the symbol {Symbols.VarPrefix} and have a name";
-            this.Log.LogError(errorMsg);
+            this.Logger.LogError(errorMsg);
             return false;
         }
 
         if (this.Content[0] != Symbols.VarPrefix)
         {
             errorMsg = $"A variable must start with the symbol {Symbols.VarPrefix}";
-            this.Log.LogError(errorMsg);
+            this.Logger.LogError(errorMsg);
             return false;
         }
 
         if (this.Content.Length < 2)
         {
             errorMsg = "The variable name is empty";
-            this.Log.LogError(errorMsg);
+            this.Logger.LogError(errorMsg);
             return false;
         }
 
@@ -54,7 +54,7 @@ internal sealed class VarBlock : Block, ITextRendering
         {
             errorMsg = $"The variable name '{this.Name}' contains invalid characters. " +
                        "Only alphanumeric chars and underscore are allowed.";
-            this.Log.LogError(errorMsg);
+            this.Logger.LogError(errorMsg);
             return false;
         }
 
@@ -69,14 +69,18 @@ internal sealed class VarBlock : Block, ITextRendering
         if (string.IsNullOrEmpty(this.Name))
         {
             const string ErrMsg = "Variable rendering failed, the variable name is empty";
-            this.Log.LogError(ErrMsg);
+            this.Logger.LogError(ErrMsg);
             throw new TemplateException(TemplateException.ErrorCodes.SyntaxError, ErrMsg);
         }
 
-        var exists = variables.Get(this.Name, out string value);
-        if (!exists) { this.Log.LogWarning("Variable `{0}{1}` not found", Symbols.VarPrefix, this.Name); }
+        if (variables.TryGetValue(this.Name, out string? value))
+        {
+            return value;
+        }
 
-        return exists ? value : string.Empty;
+        this.Logger.LogWarning("Variable `{0}{1}` not found", Symbols.VarPrefix, this.Name);
+
+        return string.Empty;
     }
 
     private static readonly Regex s_validNameRegex = new("^[a-zA-Z0-9_]*$");

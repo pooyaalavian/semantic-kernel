@@ -1,14 +1,16 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-using System;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel.AI.TextCompletion;
-using Microsoft.SemanticKernel.Memory;
 using Microsoft.SemanticKernel.Orchestration;
+using Microsoft.SemanticKernel.SkillDefinition;
 
-namespace Microsoft.SemanticKernel.SkillDefinition;
+#pragma warning disable IDE0130 // Namespace does not match folder structure
+namespace Microsoft.SemanticKernel;
+#pragma warning restore IDE0130 // Namespace does not match folder structure
 
 /// <summary>
 /// Class that holds extension methods for objects implementing ISKFunction.
@@ -32,7 +34,7 @@ public static class SKFunctionExtensions
     /// <param name="skFunction">Semantic function</param>
     /// <param name="maxTokens">Tokens count</param>
     /// <returns>Self instance</returns>
-    public static ISKFunction UseMaxTokens(this ISKFunction skFunction, int maxTokens)
+    public static ISKFunction UseMaxTokens(this ISKFunction skFunction, int? maxTokens)
     {
         skFunction.RequestSettings.MaxTokens = maxTokens;
         return skFunction;
@@ -87,37 +89,59 @@ public static class SKFunctionExtensions
     }
 
     /// <summary>
-    /// Execute a function with a custom set of context variables.
-    /// Use case: template engine: semantic function with custom input variable.
+    /// Execute a function allowing to pass the main input separately from the rest of the context.
     /// </summary>
     /// <param name="function">Function to execute</param>
-    /// <param name="input">Custom function input</param>
-    /// <param name="memory">Semantic memory</param>
-    /// <param name="skills">Available skills</param>
-    /// <param name="log">App logger</param>
+    /// <param name="variables">Input variables for the function</param>
+    /// <param name="skills">Skills that the function can access</param>
+    /// <param name="culture">Culture to use for the function execution</param>
+    /// <param name="settings">LLM completion settings (for semantic functions only)</param>
+    /// <param name="logger">Logger to use for the function execution</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>The temporary context</returns>
-    public static async Task<SKContext> InvokeWithCustomInputAsync(this ISKFunction function,
-        ContextVariables input,
-        ISemanticTextMemory memory,
-        IReadOnlySkillCollection? skills,
-        ILogger log,
+    /// <returns>The result of the function execution</returns>
+    public static Task<SKContext> InvokeAsync(this ISKFunction function,
+        ContextVariables? variables = null,
+        IReadOnlySkillCollection? skills = null,
+        CultureInfo? culture = null,
+        CompleteRequestSettings? settings = null,
+        ILogger? logger = null,
         CancellationToken cancellationToken = default)
     {
-        var tmpContext = new SKContext(input, memory, skills, log, cancellationToken);
-        try
+        var context = new SKContext(variables, skills, logger)
         {
-#pragma warning disable CA2016 // the token is passed in via the context
-            await function.InvokeAsync(tmpContext).ConfigureAwait(false);
-#pragma warning restore CA2016
-        }
-        catch (Exception ex) when (!ex.IsCriticalException())
-        {
-            log.LogError(ex, "Something went wrong when invoking function with custom input: {0}.{1}. Error: {2}", function.SkillName,
-                function.Name, ex.Message);
-            tmpContext.Fail(ex.Message, ex);
-        }
+            Culture = culture!
+        };
 
-        return tmpContext;
+        return function.InvokeAsync(context, settings, cancellationToken);
+    }
+
+    /// <summary>
+    /// Execute a function allowing to pass the main input separately from the rest of the context.
+    /// </summary>
+    /// <param name="function">Function to execute</param>
+    /// <param name="input">Input string for the function</param>
+    /// <param name="skills">Skills that the function can access</param>
+    /// <param name="culture">Culture to use for the function execution</param>
+    /// <param name="settings">LLM completion settings (for semantic functions only)</param>
+    /// <param name="logger">Logger to use for the function execution</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>The result of the function execution</returns>
+    public static Task<SKContext> InvokeAsync(this ISKFunction function,
+        string input,
+        IReadOnlySkillCollection? skills = null,
+        CultureInfo? culture = null,
+        CompleteRequestSettings? settings = null,
+        ILogger? logger = null,
+        CancellationToken cancellationToken = default)
+        => function.InvokeAsync(new ContextVariables(input), skills, culture, settings, logger, cancellationToken);
+
+    /// <summary>
+    /// Returns decorated instance of <see cref="ISKFunction"/> with enabled instrumentation.
+    /// </summary>
+    /// <param name="function">Instance of <see cref="ISKFunction"/> to decorate.</param>
+    /// <param name="logger">Optional logger.</param>
+    public static ISKFunction WithInstrumentation(this ISKFunction function, ILogger? logger = null)
+    {
+        return new InstrumentedSKFunction(function, logger);
     }
 }

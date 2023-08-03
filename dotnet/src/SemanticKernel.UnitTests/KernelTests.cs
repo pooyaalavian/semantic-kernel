@@ -2,8 +2,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.AI.TextCompletion;
 using Microsoft.SemanticKernel.Orchestration;
@@ -21,9 +23,10 @@ public class KernelTests
     public void ItProvidesAccessToFunctionsViaSkillCollection()
     {
         // Arrange
-        var kernel = KernelBuilder.Create();
-        var factory = new Mock<Func<IKernel, ITextCompletion>>();
-        kernel.Config.AddTextCompletionService(factory.Object);
+        var factory = new Mock<Func<ILogger, ITextCompletion>>();
+        var kernel = Kernel.Builder
+            .WithDefaultAIService<ITextCompletion>(factory.Object)
+            .Build();
 
         var nativeSkill = new MySkill();
         kernel.CreateSemanticFunction(promptTemplate: "Tell me a joke", functionName: "joker", skillName: "jk", description: "Nice fun");
@@ -49,9 +52,10 @@ public class KernelTests
     public async Task ItProvidesAccessToFunctionsViaSKContextAsync()
     {
         // Arrange
-        var kernel = KernelBuilder.Create();
-        var factory = new Mock<Func<IKernel, ITextCompletion>>();
-        kernel.Config.AddTextCompletionService(factory.Object);
+        var factory = new Mock<Func<(ILogger, KernelConfig), ITextCompletion>>();
+        var kernel = Kernel.Builder
+            .WithAIService<ITextCompletion>("x", factory.Object)
+            .Build();
 
         var nativeSkill = new MySkill();
         kernel.CreateSemanticFunction("Tell me a joke", functionName: "joker", skillName: "jk", description: "Nice fun");
@@ -61,23 +65,23 @@ public class KernelTests
         SKContext result = await kernel.RunAsync(skill["ReadSkillCollectionAsync"]);
 
         // Assert - 3 functions, var name is not case sensitive
-        Assert.Equal("Nice fun", result["jk.joker"]);
-        Assert.Equal("Nice fun", result["JK.JOKER"]);
-        Assert.Equal("Just say hello", result["mySk.sayhello"]);
-        Assert.Equal("Just say hello", result["mySk.SayHello"]);
-        Assert.Equal("Export info.", result["mySk.ReadSkillCollectionAsync"]);
-        Assert.Equal("Export info.", result["mysk.readskillcollectionasync"]);
+        Assert.Equal("Nice fun", result.Variables["jk.joker"]);
+        Assert.Equal("Nice fun", result.Variables["JK.JOKER"]);
+        Assert.Equal("Just say hello", result.Variables["mySk.sayhello"]);
+        Assert.Equal("Just say hello", result.Variables["mySk.SayHello"]);
+        Assert.Equal("Export info.", result.Variables["mySk.ReadSkillCollectionAsync"]);
+        Assert.Equal("Export info.", result.Variables["mysk.readskillcollectionasync"]);
     }
 
     [Fact]
     public async Task RunAsyncDoesNotRunWhenCancelledAsync()
     {
         // Arrange
-        var kernel = KernelBuilder.Create();
+        var kernel = Kernel.Builder.Build();
         var nativeSkill = new MySkill();
         var skill = kernel.ImportSkill(nativeSkill, "mySk");
 
-        using CancellationTokenSource cts = new CancellationTokenSource();
+        using CancellationTokenSource cts = new();
         cts.Cancel();
 
         // Act
@@ -93,11 +97,11 @@ public class KernelTests
     public async Task RunAsyncRunsWhenNotCancelledAsync()
     {
         // Arrange
-        var kernel = KernelBuilder.Create();
+        var kernel = Kernel.Builder.Build();
         var nativeSkill = new MySkill();
         kernel.ImportSkill(nativeSkill, "mySk");
 
-        using CancellationTokenSource cts = new CancellationTokenSource();
+        using CancellationTokenSource cts = new();
 
         // Act
         SKContext result = await kernel.RunAsync(cts.Token, kernel.Func("mySk", "GetAnyValue"));
@@ -112,7 +116,7 @@ public class KernelTests
     public void ItImportsSkillsNotCaseSensitive()
     {
         // Act
-        IDictionary<string, ISKFunction> skill = KernelBuilder.Create().ImportSkill(new MySkill(), "test");
+        IDictionary<string, ISKFunction> skill = Kernel.Builder.Build().ImportSkill(new MySkill(), "test");
 
         // Assert
         Assert.Equal(3, skill.Count);
@@ -125,21 +129,22 @@ public class KernelTests
     public void ItAllowsToImportSkillsInTheGlobalNamespace()
     {
         // Arrange
-        var kernel = KernelBuilder.Create();
+        var kernel = Kernel.Builder.Build();
 
         // Act
         IDictionary<string, ISKFunction> skill = kernel.ImportSkill(new MySkill());
 
         // Assert
         Assert.Equal(3, skill.Count);
-        Assert.True(kernel.Skills.HasNativeFunction("GetAnyValue"));
+        Assert.True(kernel.Skills.TryGetFunction("GetAnyValue", out ISKFunction? functionInstance));
+        Assert.NotNull(functionInstance);
     }
 
     [Fact]
     public void ItAllowsToImportTheSameSkillMultipleTimes()
     {
         // Arrange
-        var kernel = KernelBuilder.Create();
+        var kernel = Kernel.Builder.Build();
 
         // Act - Assert no exception occurs
         kernel.ImportSkill(new MySkill());
@@ -147,44 +152,37 @@ public class KernelTests
         kernel.ImportSkill(new MySkill());
     }
 
-    [Fact]
-    public void ItFailsIfTextCompletionServiceConfigIsNotSet()
-    {
-        // Arrange
-        var kernel = KernelBuilder.Create();
-
-        var exception = Assert.Throws<KernelException>(
-            () => kernel.CreateSemanticFunction(promptTemplate: "Tell me a joke", functionName: "joker", skillName: "jk", description: "Nice fun"));
-    }
-
     public class MySkill
     {
-        [SKFunction("Return any value.")]
+        [SKFunction, Description("Return any value.")]
         public string GetAnyValue()
         {
             return Guid.NewGuid().ToString();
         }
 
-        [SKFunction("Just say hello")]
+        [SKFunction, Description("Just say hello")]
         public void SayHello()
         {
             Console.WriteLine("Hello folks!");
         }
 
-        [SKFunction("Export info.")]
+        [SKFunction, Description("Export info."), SKName("ReadSkillCollectionAsync")]
         public async Task<SKContext> ReadSkillCollectionAsync(SKContext context)
         {
             await Task.Delay(0);
 
-            context.ThrowIfSkillCollectionNotSet();
+            if (context.Skills == null)
+            {
+                Assert.Fail("Skills collection is missing");
+            }
 
-            FunctionsView procMem = context.Skills!.GetFunctionsView();
+            FunctionsView procMem = context.Skills.GetFunctionsView();
 
             foreach (KeyValuePair<string, List<FunctionView>> list in procMem.SemanticFunctions)
             {
                 foreach (FunctionView f in list.Value)
                 {
-                    context[$"{list.Key}.{f.Name}"] = f.Description;
+                    context.Variables[$"{list.Key}.{f.Name}"] = f.Description;
                 }
             }
 
@@ -192,7 +190,7 @@ public class KernelTests
             {
                 foreach (FunctionView f in list.Value)
                 {
-                    context[$"{list.Key}.{f.Name}"] = f.Description;
+                    context.Variables[$"{list.Key}.{f.Name}"] = f.Description;
                 }
             }
 
